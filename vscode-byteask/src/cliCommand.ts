@@ -15,7 +15,13 @@ export interface CliSpawnSpec {
 }
 
 function quoteForCmd(arg: string): string {
-  return /[\s"]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg;
+  if (arg === '') {
+    return '""';
+  }
+  // Enclose in double quotes unless the argument consists entirely of safe characters.
+  // This prevents cmd.exe from interpreting &, |, <, >, ^, %, !, spaces, or quotes
+  // as shell commands or syntax when falling back to cmd.exe /d /s /c.
+  return /^[A-Za-z0-9_./:\\-]+$/.test(arg) ? arg : `"${arg.replace(/"/g, '""')}"`;
 }
 
 const POWERSHELL_FLAGS = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'];
@@ -34,10 +40,11 @@ function isFile(candidate: string): boolean {
 
 function resolveOnPath(command: string): string | undefined {
   const hasExtension = path.extname(command) !== '';
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+  for (let dir of (process.env.PATH ?? '').split(path.delimiter)) {
     if (!dir) {
       continue;
     }
+    dir = dir.replace(/^"|"$/g, '');
     const base = path.join(dir, command);
     if (hasExtension) {
       if (isFile(base)) {
@@ -58,10 +65,28 @@ function resolveOnPath(command: string): string | undefined {
 }
 
 function resolveWindowsCommand(command: string): string | undefined {
-  if (path.isAbsolute(command) || command.includes('\\') || command.includes('/')) {
-    return isFile(command) ? path.resolve(command) : undefined;
+  const cleaned = command.replace(/^"|"$/g, '').trim();
+  if (!cleaned) {
+    return undefined;
   }
-  return resolveOnPath(command);
+  if (path.isAbsolute(cleaned) || cleaned.includes('\\') || cleaned.includes('/')) {
+    if (isFile(cleaned)) {
+      return path.resolve(cleaned);
+    }
+    const hasExtension = path.extname(cleaned) !== '';
+    if (!hasExtension) {
+      for (const ext of WINDOWS_EXECUTABLE_EXTENSIONS) {
+        if (isFile(cleaned + ext)) {
+          return path.resolve(cleaned + ext);
+        }
+      }
+      if (isFile(cleaned + '.ps1')) {
+        return path.resolve(cleaned + '.ps1');
+      }
+    }
+    return undefined;
+  }
+  return resolveOnPath(cleaned);
 }
 
 export function cliSpawnSpec(command: string, args: string[]): CliSpawnSpec {

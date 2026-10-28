@@ -174,11 +174,29 @@ function testBatchWithoutPs1Sibling() {
   });
   check('the batch file was reached (not split at the space)', (result.stdout ?? '').includes('GOT:[app-server]'));
   check('its exit code came through', result.status === 3);
+
+  // An argument with spaces must be preserved as a single argument
+  const spaceSpec = cliSpawnSpec(noSiblingCmd, ['two words']);
+  const spaceResult = spawnSync(spaceSpec.command, spaceSpec.args, {
+    encoding: 'utf8',
+    windowsVerbatimArguments: spaceSpec.windowsVerbatimArguments,
+  });
+  check('argument with space was preserved intact', (spaceResult.stdout ?? '').includes('GOT:[two words]'));
+
+  // An empty argument must not be dropped
+  const emptySpec = cliSpawnSpec(noSiblingCmd, ['']);
+  const emptyResult = spawnSync(emptySpec.command, emptySpec.args, {
+    encoding: 'utf8',
+    windowsVerbatimArguments: emptySpec.windowsVerbatimArguments,
+  });
+  check('empty argument was preserved', (emptyResult.stdout ?? '').includes('GOT:[]'));
 }
 
 try {
   await connectAndCheck('bare command resolved via PATH', 'fake-cli');
   await connectAndCheck('absolute .cmd path from the byteask.command setting', path.join(shimDir, 'fake-cli.cmd'));
+  await connectAndCheck('absolute path without extension', path.join(shimDir, 'fake-cli'));
+  await connectAndCheck('quoted absolute .cmd path', `"${path.join(shimDir, 'fake-cli.cmd')}"`);
   testPromptArgumentsSurvive();
   testBatchWithoutPs1Sibling();
 } finally {
